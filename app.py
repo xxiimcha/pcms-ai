@@ -2,9 +2,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import random
+from collections import Counter
 
 app = Flask(__name__)
-CORS(app)  # <-- ADD THIS LINE to allow CORS requests
+CORS(app)  # Allow CORS
 
 # ------------------ CONFIG ------------------
 WEEKENDS = [5, 6]  # Saturday=5, Sunday=6
@@ -14,14 +15,30 @@ WEEKENDS = [5, 6]  # Saturday=5, Sunday=6
 def is_conflict(date_to_check, consultations):
     """Check if the date conflicts with existing consultations."""
     for consultation in consultations:
-        start = datetime.strptime(consultation['start_date'], '%Y-%m-%d')
-        end = datetime.strptime(consultation['end_date'], '%Y-%m-%d')
+        start_date = consultation.get('start_date')
+        end_date = consultation.get('end_date') or start_date  # fallback if end_date is None
+
+        start = datetime.strptime(start_date, '%Y-%m-%d')
+        end = datetime.strptime(end_date, '%Y-%m-%d')
+
         if start <= date_to_check <= end:
             return True
     return False
 
+def find_high_complaint_dates(consultations, threshold=3):
+    """Find dates where complaints exceed a threshold."""
+    date_counter = Counter()
+
+    for consultation in consultations:
+        start_date = consultation.get('start_date')
+        if start_date:
+            date_counter[start_date] += 1
+
+    high_complaint_dates = [date for date, count in date_counter.items() if count > threshold]
+    return high_complaint_dates
+
 def suggest_available_dates(consultations, holidays):
-    """Suggest available consultation dates based on data passed from PHP."""
+    """Suggest available consultation dates based on complaints and holidays."""
     today = datetime.today()
     search_start = today + timedelta(days=7)
     search_end = today + timedelta(days=14)
@@ -47,15 +64,23 @@ def suggest_available_dates(consultations, holidays):
 
 @app.route('/suggest_date', methods=['POST'])
 def suggest_date():
-    """API Endpoint to suggest date based on posted consultation and holiday data."""
+    """API Endpoint to suggest date based on posted complaint data."""
     data = request.get_json()
 
     consultations = data.get('consultations', [])
     holidays = data.get('holidays', [])
 
+    high_complaint_dates = find_high_complaint_dates(consultations, threshold=3)
     available_dates = suggest_available_dates(consultations, holidays)
 
-    if available_dates:
+    if high_complaint_dates:
+        return jsonify({
+            'success': True,
+            'suggested_action': 'Create Consultation Event',
+            'high_complaint_dates': high_complaint_dates,
+            'message': f'Dates with high complaint volume detected: {", ".join(high_complaint_dates)}. Suggest scheduling a consultation event.'
+        })
+    elif available_dates:
         best_date = random.choice(available_dates)
         return jsonify({
             'success': True,
