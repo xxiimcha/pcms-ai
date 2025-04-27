@@ -2,10 +2,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 
 app = Flask(__name__)
-CORS(app)  # Allow CORS
+CORS(app)
 
 # ------------------ CONFIG ------------------
 WEEKENDS = [5, 6]  # Saturday=5, Sunday=6
@@ -16,7 +16,7 @@ def is_conflict(date_to_check, consultations):
     """Check if the date conflicts with existing consultations."""
     for consultation in consultations:
         start_date = consultation.get('start_date')
-        end_date = consultation.get('end_date') or start_date  # fallback if end_date is None
+        end_date = consultation.get('end_date') or start_date
 
         start = datetime.strptime(start_date, '%Y-%m-%d')
         end = datetime.strptime(end_date, '%Y-%m-%d')
@@ -25,20 +25,30 @@ def is_conflict(date_to_check, consultations):
             return True
     return False
 
-def find_high_complaint_dates(consultations, threshold=3):
-    """Find dates where complaints exceed a threshold."""
-    date_counter = Counter()
+def find_high_complaint_dates_and_types(consultations, threshold=3):
+    """Find dates and complaint types where complaint count exceeds threshold."""
+    date_type_counter = defaultdict(Counter)
 
     for consultation in consultations:
         start_date = consultation.get('start_date')
+        complaint_type = consultation.get('type', 'Unknown')  # Default to Unknown if type missing
         if start_date:
-            date_counter[start_date] += 1
+            date_type_counter[start_date][complaint_type] += 1
 
-    high_complaint_dates = [date for date, count in date_counter.items() if count > threshold]
-    return high_complaint_dates
+    high_dates_info = []
+    for date, types in date_type_counter.items():
+        for complaint_type, count in types.items():
+            if count > threshold:
+                high_dates_info.append({
+                    'date': date,
+                    'type': complaint_type,
+                    'count': count
+                })
+
+    return high_dates_info
 
 def suggest_available_dates(consultations, holidays):
-    """Suggest available consultation dates based on complaints and holidays."""
+    """Suggest available consultation dates based on existing events and holidays."""
     today = datetime.today()
     search_start = today + timedelta(days=7)
     search_end = today + timedelta(days=14)
@@ -70,15 +80,19 @@ def suggest_date():
     consultations = data.get('consultations', [])
     holidays = data.get('holidays', [])
 
-    high_complaint_dates = find_high_complaint_dates(consultations, threshold=3)
+    high_complaints_info = find_high_complaint_dates_and_types(consultations, threshold=3)
     available_dates = suggest_available_dates(consultations, holidays)
 
-    if high_complaint_dates:
+    if high_complaints_info:
+        messages = [
+            f"{info['date']} (Type: {info['type']}, {info['count']} complaints)"
+            for info in high_complaints_info
+        ]
         return jsonify({
             'success': True,
             'suggested_action': 'Create Consultation Event',
-            'high_complaint_dates': high_complaint_dates,
-            'message': f'Dates with high complaint volume detected: {", ".join(high_complaint_dates)}. Suggest scheduling a consultation event.'
+            'high_complaints_info': high_complaints_info,
+            'message': f"High complaint volume detected:\n" + "\n".join(messages)
         })
     elif available_dates:
         best_date = random.choice(available_dates)
