@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from datetime import datetime, timedelta
 import random
 
 app = Flask(__name__)
+CORS(app)  # <-- ADD THIS LINE to allow CORS requests
 
 # ------------------ CONFIG ------------------
 WEEKENDS = [5, 6]  # Saturday=5, Sunday=6
